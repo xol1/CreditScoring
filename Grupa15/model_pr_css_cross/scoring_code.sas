@@ -1,31 +1,71 @@
-/* =========================================================
-   MODEL: PR Css Cross (SCORING)
-   OUTPUT: prob_response_css (0-1)
-   Uwaga: Ten plik jest %include'owany WEWNĄTRZ DATA STEP
-   (decision_engine.sas), więc nie używamy PROC LOGISTIC.
-   ========================================================= */
+data &zbior._score;
+    set &zbior;
 
-length _prod_norm $10;
-_prod_norm = strip(lowcase(product));
+    /* Inicjalizacja bazowej liczby punktów (Intercept modelu: 3.7072) */
+    SCORECARD_POINTS = 3.7072;
 
-if missing(_prod_norm) or missing(act_age) or missing(app_income) or missing(act_cc) or missing(app_loan_amount) then do;
-    prob_response_css = .;
-end;
-else do;
-    _logit = 3.7072
-           + 0.0338    * act_age
-           + (-0.00005)* app_income
-           + (-0.6371) * act_cc
-           + 0.00001   * app_loan_amount;
+    /* 1. Normalizacja produktu dla logiki warunkowej */
+    length _prod_norm_pr $10;
+    _prod_norm_pr = strip(lowcase(product));
 
-    if _prod_norm = 'css' then _logit + 2.2422;
-    else if _prod_norm = 'ins' then _logit + 0;
-    else do;
-        prob_response_css = .;
-        _logit = .;
+    /* ===================== ACT_AGE (Współczynnik: 0.0338) ===================== */
+    select;
+        when (not missing(ACT_AGE)) do;
+            PSC_ACT_AGE = 0.0338 * ACT_AGE;
+            SCORECARD_POINTS = sum(SCORECARD_POINTS, PSC_ACT_AGE);
+        end;
+        otherwise PSC_ACT_AGE = .;
     end;
 
-    if not missing(_logit) then prob_response_css = 1/(1+exp(-_logit));
-end;
+    /* ===================== APP_INCOME (Współczynnik: -0.00005) ===================== */
+    select;
+        when (not missing(APP_INCOME)) do;
+            PSC_APP_INCOME = -0.00005 * APP_INCOME;
+            SCORECARD_POINTS = sum(SCORECARD_POINTS, PSC_APP_INCOME);
+        end;
+        otherwise PSC_APP_INCOME = .;
+    end;
 
-drop _logit _prod_norm;
+    /* ===================== ACT_CC (Współczynnik: -0.6371) ===================== */
+    select;
+        when (not missing(ACT_CC)) do;
+            PSC_ACT_CC = -0.6371 * ACT_CC;
+            SCORECARD_POINTS = sum(SCORECARD_POINTS, PSC_ACT_CC);
+        end;
+        otherwise PSC_ACT_CC = .;
+    end;
+
+    /* ===================== APP_LOAN_AMOUNT (Współczynnik: 0.00001) ===================== */
+    select;
+        when (not missing(APP_LOAN_AMOUNT)) do;
+            PSC_APP_LOAN_AMOUNT = 0.00001 * APP_LOAN_AMOUNT;
+            SCORECARD_POINTS = sum(SCORECARD_POINTS, PSC_APP_LOAN_AMOUNT);
+        end;
+        otherwise PSC_APP_LOAN_AMOUNT = .;
+    end;
+
+    /* ===================== PRODUCT LOGIC (Współczynnik CSS: 2.2422) ===================== */
+    select;
+        when (_prod_norm_pr = 'css') do;
+            PSC_PRODUCT = 2.2422;
+            SCORECARD_POINTS = sum(SCORECARD_POINTS, PSC_PRODUCT);
+        end;
+        when (_prod_norm_pr = 'ins') do;
+            PSC_PRODUCT = 0;
+            SCORECARD_POINTS = sum(SCORECARD_POINTS, PSC_PRODUCT);
+        end;
+        otherwise do;
+            PSC_PRODUCT = .;
+            SCORECARD_POINTS = .; /* Brak możliwości wyliczenia dla innego produktu */
+        end;
+    end;
+
+    /* Wyliczenie finalnego prawdopodobieństwa na podstawie uzyskanych punktów (logit) */
+    if not missing(SCORECARD_POINTS) then 
+        prob_response_css = 1/(1+exp(-SCORECARD_POINTS));
+    else 
+        prob_response_css = .;
+
+    /* Sprzątanie zmiennych technicznych */
+    drop _prod_norm_pr;
+run;
